@@ -134,28 +134,74 @@ int index_status(const Index *index) {
 //   - hex_to_hash                      : converting the parsed string to ObjectID
 //
 // Returns 0 on success, -1 on error.
-int index_load(Index *index) {
-    // TODO: Implement index loading
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+static int compare_index_entries(const void *a, const void *b) {
+    return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
 }
+int index_load(Index *index) {
+    index->count = 0;  // ← make sure this is the FIRST line
+    FILE *f = fopen(INDEX_FILE, "r");
+    if (!f) return 0;
 
-// Save the index to .pes/index atomically.
-//
-// HINTS - Useful functions and syscalls:
-//   - qsort                            : sorting the entries array by path
-//   - fopen (with "w"), fprintf        : writing to the temporary file
-//   - hash_to_hex                      : converting ObjectID for text output
-//   - fflush, fileno, fsync, fclose    : flushing userspace buffers and syncing to disk
-//   - rename                           : atomically moving the temp file over the old index
-//
-// Returns 0 on success, -1 on error.
+    char hex[HASH_HEX_SIZE + 1];
+    uint32_t mode;
+    uint64_t mtime;
+    uint32_t size;
+    char path[512];
+
+    while (fscanf(f, "%o %64s %" SCNu64 " %" SCNu32 " %511s",
+                  &mode, hex, &mtime, &size, path) == 5) {
+        IndexEntry *e = &index->entries[index->count++];
+        e->mode     = mode;
+        e->mtime_sec = mtime;
+        e->size     = size;
+        strncpy(e->path, path, sizeof(e->path) - 1);
+        e->path[sizeof(e->path) - 1] = '\0';
+        hex_to_hash(hex, &e->hash);
+    }
+    fclose(f);
+    return 0;
+}
+// Phase 3: index_save writes atomically using temp file + rename.
+// Uses pointer array instead of struct copy to avoid stack overflow.
 int index_save(const Index *index) {
-    // TODO: Implement atomic index saving
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+    char tmp_path[512];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", INDEX_FILE);
+
+    FILE *f = fopen(tmp_path, "w");
+    if (!f) return -1;
+
+    // Build a sorted array of pointers (avoid copying huge struct on stack)
+    int count = index->count;
+    const IndexEntry **sorted = malloc(count * sizeof(IndexEntry *));
+    if (!sorted) { fclose(f); return -1; }
+    for (int i = 0; i < count; i++)
+        sorted[i] = &index->entries[i];
+
+    // Sort by path
+    for (int i = 0; i < count - 1; i++)
+        for (int j = i + 1; j < count; j++)
+            if (strcmp(sorted[i]->path, sorted[j]->path) > 0) {
+                const IndexEntry *tmp = sorted[i];
+                sorted[i] = sorted[j];
+                sorted[j] = tmp;
+            }
+
+    for (int i = 0; i < count; i++) {
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&sorted[i]->hash, hex);
+        fprintf(f, "%o %s %" PRIu64 " %" PRIu32 " %s\n",
+                sorted[i]->mode,
+                hex,
+                sorted[i]->mtime_sec,
+                sorted[i]->size,
+                sorted[i]->path);
+    }
+
+    free(sorted);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+    return rename(tmp_path, INDEX_FILE);
 }
 
 // Stage a file for the next commit.
