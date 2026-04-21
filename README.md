@@ -19,7 +19,7 @@
   - Returns data portion after the null byte
 
 ### Screenshot 1A — test_objects output
-![Screenshot 1A](Https://github.com/Janavi88/os-u4-orange-problem/blob/ed45f428f9fbe5437e6ad49e27e563422ddfe636/output/1A.png)
+![Screenshot 1A](https://github.com/Janavi88/os-u4-orange-problem/blob/ed45f428f9fbe5437e6ad49e27e563422ddfe636/output/1A.png)
 
 ### Screenshot 1B — Sharded object store
 ![Screenshot 1B](https://github.com/Janavi88/os-u4-orange-problem/blob/ed45f428f9fbe5437e6ad49e27e563422ddfe636/output/1B.png)
