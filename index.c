@@ -25,7 +25,7 @@
 #include <dirent.h>
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
-
+int object_write(ObjectType type , const void *data, size_t len, ObjectID *id_out);
 // Find an index entry by path (linear scan).
 IndexEntry* index_find(Index *index, const char *path) {
     for (int i = 0; i < index->count; i++) {
@@ -168,8 +168,42 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+ // Read file contents
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "error: cannot open '%s'\n", path); return -1; }
+    fseek(f, 0, SEEK_END);
+    size_t file_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    void *buf = malloc(file_len);
+    if (!buf) { fclose(f); return -1; }
+    fread(buf, 1, file_len, f);
+    fclose(f);
+
+    // Write blob to object store
+    ObjectID blob_id;
+    if (object_write(OBJ_BLOB, buf, file_len, &blob_id) != 0) {
+        free(buf);
+        return -1;
+    }
+    free(buf);
+
+    // Get file metadata
+    struct stat st;
+    if (lstat(path, &st) != 0) return -1;
+
+    // Update or add index entry
+    IndexEntry *existing = index_find(index, path);
+    if (!existing) {
+        if (index->count >= MAX_INDEX_ENTRIES) return -1;
+        existing = &index->entries[index->count++];
+    }
+
+    strncpy(existing->path, path, sizeof(existing->path) - 1);
+    existing->path[sizeof(existing->path) - 1] = '\0';
+    existing->mode      = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+    existing->mtime_sec = (uint64_t)st.st_mtime;
+    existing->size      = (uint64_t)st.st_size;
+    memcpy(existing->hash.hash, blob_id.hash, HASH_SIZE);
+
+    return index_save(index);
 }
